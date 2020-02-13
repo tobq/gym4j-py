@@ -165,9 +165,11 @@ while True:
     event = json.loads(event_string)
     response = handle(event)
 
-    # print("> MID:" + str(mid), file=sys.stderr)
+
+    # print("> EVENT: " + event_string, file=sys.stderr)
     # print("> EVENT: " + event_string, file=sys.stderr)
     # print("> RESPONSE: " + str(response), file=sys.stderr)
+    # print("> WRITING: " + str(mid_bytes), file=sys.stderr)
     # sys.stderr.flush()
     # # TODO: IMPLEMENT THREAD(-POOL)ED HANDLING
 
