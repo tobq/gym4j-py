@@ -131,8 +131,8 @@ def serialise_space(space):
         return {
             "type": "box",
             "shape": space.shape,
-            "high": space.high.tolist(),
-            "low": space.low.tolist()
+            "high": space.high.flatten().tolist(),
+            "low": space.low.flatten().tolist()
         }
     elif action_type == gym.spaces.discrete.Discrete:
         return {
