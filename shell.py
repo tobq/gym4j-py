@@ -1,70 +1,44 @@
-import sys
-
-PY3K = sys.version_info >= (3, 0)
-
-if PY3K:
-    source = sys.stdin.buffer
-else:
-    # Python 2 on Windows opens sys.stdin in text mode, and
-    # binary data that read from it becomes corrupted on \r\n
-    if sys.platform == "win32":
-        # set sys.stdin to binary mode
-        import os, msvcrt
-
-        msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
-    source = sys.stdin
-
-BUFFER_SIZE = 1024
-
-
-def read(byte_count):
-    recv = source.read(min(byte_count, BUFFER_SIZE))
-    l = len(recv)
-    while l < byte_count:
-        next_recv = source.readrecv(min(byte_count - l, BUFFER_SIZE))
-        recv += next_recv
-        l += len(next_recv)
-    return recv
-
-
-import gym
 import json
+import porter
+import gym
 import numpy as np
 
 instanceCount = 0
 instances = {}
 
 
-def close(instance_id):
-    get_env(instance_id).close()
-    del instances[instance_id]
-
-
-def handle(event):
+def handle(event_json, respond):
+    event = json.loads(event_json)
     event_type = event.get("type")
+
     if event_type == "make":
-        return make(event.get("envId"), event.get("render"))
+        response = make(event.get("envId"), event.get("render"))
     else:
         instance_id = event.get("id")
         if event_type == "step":
-            return step(instance_id, event.get("action"))
+            response = step(instance_id, event.get("action"))
         elif event_type == "reset":
-            return reset(instance_id)
+            response = reset(instance_id)
         elif event_type == "shape":
-            return shape(instance_id)
-        elif event_type == "close":
-            close(instance_id)
+            response = shape(instance_id)
+        else:
+            if event_type == "close":
+                close(instance_id)
+            return
+
+    respond(response)
 
 
 def make(envId, render=False):
     global instanceCount
     id = instanceCount
+    make = gym.make(envId)
     instances[id] = {
-        "env": gym.make(envId),
+        "env": make,
         "render": render
     }
     instanceCount += 1
-    return int_to_bytes(id)
+    return porter.int_to_bytes(id)
 
 
 def step(id, action):
@@ -105,12 +79,13 @@ def shape(instance_id):
     return dict_to_utf_bytes(response)
 
 
+def close(instance_id):
+    get_env(instance_id).close()
+    del instances[instance_id]
+
+
 def dict_to_utf_bytes(dict):
     return bytes(json.dumps(dict), 'utf-8')
-
-
-def int_to_bytes(n):
-    return n.to_bytes(4, "big")
 
 
 def get_env(id):
@@ -141,40 +116,5 @@ def serialise_space(space):
         }
 
 
-def read_int():
-    return parse_int(read_int_bytes())
-
-
-def parse_int(bytes):
-    return int.from_bytes(bytes, "big")
-
-
-def read_int_bytes():
-    return read(4)
-
-
-def read_UTF(length):
-    return read(length).decode("utf-8")
-
-
-while True:
-    mid_bytes = read_int_bytes()
-    mid = parse_int(mid_bytes)
-    in_length = read_int()
-    event_string = read_UTF(in_length)
-    event = json.loads(event_string)
-    response = handle(event)
-
-
-    # print("> EVENT: " + event_string, file=sys.stderr)
-    # print("> EVENT: " + event_string, file=sys.stderr)
-    # print("> RESPONSE: " + str(response), file=sys.stderr)
-    # print("> WRITING: " + str(mid_bytes), file=sys.stderr)
-    # sys.stderr.flush()
-    # # TODO: IMPLEMENT THREAD(-POOL)ED HANDLING
-
-    if response is not None:
-        sys.stdout.buffer.write(mid_bytes)
-        sys.stdout.buffer.write(int_to_bytes(len(response)))
-        sys.stdout.buffer.write(response)
-        sys.stdout.flush()
+porter.set_handler(handle)
+porter.start()
