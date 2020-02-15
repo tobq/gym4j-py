@@ -43,35 +43,44 @@ def set_handler(handler):
     _handler = handler
 
 
-def stop(clear_message_queue=False):
-    global running
-
-    running = False
-    shutdown_latch.wait()
-
-    if (clear_message_queue):
-        while not message_queue.empty():
-            try:
-                message_queue.get(False)
-            except:
-                continue
-            message_queue.task_done()
+def print_err(*msgs):
+    print(" ".join(str(msg) for msg in msgs), file=sys.stderr)
 
 
 startup_latch = None
 shutdown_latch = None
+threaded_execution = "--threaded" in sys.argv
+
+
+# print_err("threaded mode:", threaded_execution)
+
+
+def stop(clear_message_queue=False):
+    global running
+
+    if threaded_execution:
+        shutdown_latch.wait()
+        if (clear_message_queue):
+            while not message_queue.empty():
+                message_queue.get(False)
+    running = False
 
 
 def start():
     global running, startup_latch, shutdown_latch
     if (running):
         return
-    startup_latch = CountDownLatch(2)
-    shutdown_latch = CountDownLatch(2)
     running = True
-    Thread(target=message_reader).start()
-    Thread(target=message_writer).start()
-    startup_latch.wait()
+    if threaded_execution:
+        startup_latch = CountDownLatch(2)
+        shutdown_latch = CountDownLatch(2)
+        Thread(target=message_reader).start()
+        Thread(target=message_writer).start()
+        startup_latch.wait()
+    else:
+        while running:
+            mid, event_json = fetch_message()
+            _handler(event_json, lambda response: send_message(mid, response))
 
 
 def __handler(array_args):
@@ -88,8 +97,8 @@ def message_reader():
     while running:
         mid, event_json = fetch_message()
         respond = lambda response: message_queue.put((mid, response))
-        _handler(event_json, respond)
-        # thread_pool.submit(__handler, [event_json, respond])
+        # _handler(event_json, respond)
+        thread_pool.submit(__handler, [event_json, respond])
     shutdown_latch.count_down()
 
 
@@ -105,17 +114,12 @@ message_queue = Queue()
 thread_pool = ThreadPoolExecutor()
 
 
-# # gym.make() hangs thread
-# Thread(target=message_reader).start()
-# Thread(target=message_writer).start()
-
-
 def fetch_message():
     mid = read_int_bytes()
     # mid = parse_int(mid)
     event_length = read_int()
     event_json = read_UTF(event_length)
-    # print_err("> READ [" + str(mid) + "]: " + str(event_string))
+    # print_err("> READ [" + str(mid) + "]: " + str(event_json))
     return mid, event_json
 
 
@@ -136,7 +140,7 @@ def read_UTF(length):
 
 
 def send_message(mid, response):
-    # print_err("> WRITING [" + str(mid) + "]: " + str(response_bytes))
+    # print_err("> WRITING [" + str(mid) + "]: " + str(response))
     to_write = mid + int_to_bytes(len(response)) + response
     sys.stdout.buffer.write(to_write)
     sys.stdout.flush()
@@ -144,11 +148,6 @@ def send_message(mid, response):
 
 def int_to_bytes(n):
     return n.to_bytes(4, "big")
-
-
-def print_err(*msgs):
-    for msg in msgs:
-        print(msg, file=sys.stderr)
 
 
 class CountDownLatch:
