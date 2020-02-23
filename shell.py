@@ -24,7 +24,9 @@ def handle(event_json, respond):
         else:
             if event_type == "close":
                 close(instance_id)
-            return
+                response = b"YEAAHHHH BOIII"
+            else:
+                response = b"404 - INVALID REQUEST"
 
     respond(response)
 
