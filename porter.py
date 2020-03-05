@@ -45,6 +45,7 @@ def set_handler(handler):
 
 def print_err(*msgs):
     print(" ".join(str(msg) for msg in msgs), file=sys.stderr)
+    pass
 
 
 startup_latch = None
@@ -60,7 +61,7 @@ def stop(clear_message_queue=False):
 
     if threaded_execution:
         shutdown_latch.wait()
-        if (clear_message_queue):
+        if clear_message_queue:
             while not message_queue.empty():
                 message_queue.get(False)
     running = False
@@ -68,7 +69,7 @@ def stop(clear_message_queue=False):
 
 def start():
     global running, startup_latch, shutdown_latch
-    if (running):
+    if running:
         return
     running = True
     if threaded_execution:
@@ -79,27 +80,36 @@ def start():
         startup_latch.wait()
     else:
         while running:
-            mid, event_json = fetch_message()
-            _handler(event_json, lambda response: send_message(mid, response))
+            mid, message = fetch_message()
+            _handler(message, lambda response: send_message(mid, response))
 
 
 def __handler(array_args):
+    # print_err("__HANDLER CALLED", *array_args)
     result = None
     try:
         result = _handler(*array_args)
-    except object as e:
+    except Exception as e:
+        print_err("EXCEPTION OCCURRED")
         print_err(e)
     return result
 
 
 def message_reader():
     startup_latch.count_down()
-    while running:
-        mid, event_json = fetch_message()
-        respond = lambda response: message_queue.put((mid, response))
-        # _handler(event_json, respond)
-        thread_pool.submit(__handler, [event_json, respond])
+    try:
+        while running:
+            mid, event_json = fetch_message()
+            # respond = lambda response: message_queue.put((mid, response))
+            thread_pool.submit(__handler, [event_json, respond(mid)])
+            # thread_pool.submit(__handler, [event_json, respond])
+    except Exception as e:
+        print_err(e)
     shutdown_latch.count_down()
+
+
+def respond(mid):
+    return lambda response: message_queue.put((mid, response))
 
 
 def message_writer():
@@ -115,12 +125,10 @@ thread_pool = ThreadPoolExecutor()
 
 
 def fetch_message():
-    mid = read_int_bytes()
-    # mid = parse_int(mid)
+    id = read_int_bytes()
     event_length = read_int()
-    event_json = read_UTF(event_length)
-    # print_err("> READ [" + str(mid) + "]: " + str(event_json))
-    return mid, event_json
+    message = read_UTF(event_length)
+    return id, message
 
 
 def read_int():
@@ -148,6 +156,10 @@ def send_message(mid, response):
 
 def int_to_bytes(n):
     return n.to_bytes(4, "big")
+
+
+def bytes_to_int(bytes):
+    return int.from_bytes(bytes, "big")
 
 
 class CountDownLatch:
